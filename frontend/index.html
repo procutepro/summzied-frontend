@@ -1,0 +1,139 @@
+<!--
+Note: this shit is made by ai because i am a piece of shit in ui
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Study App</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; align-items: center; }
+    header { background: #222; color: white; padding: 1rem; text-align: center; width: 100%; }
+    nav { margin: 1rem; }
+    nav button { margin: 0 .5rem; padding: .5rem 1rem; }
+    #capture, #explanation { display: none; max-width: 600px; width: 100%; }
+    #capture.active, #explanation.active { display: block; }
+    img, video { max-width: 100%; margin-top: 1rem; }
+    pre { background: #f4f4f4; padding: 1rem; white-space: pre-wrap; }
+    #previewArea img { max-width: 100px; margin: 5px; border: 1px solid #ccc; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <header><h1>Study App</h1></header>
+  <nav>
+    <button id="tab-capture">Capture</button>
+    <button id="tab-explain">Explanation</button>
+  </nav>
+
+  <section id="capture" class="active">
+    <video id="camera" autoplay playsinline></video>
+    <canvas id="snapshot" style="display:none;"></canvas>
+    <input type="file" id="fileInput" accept="image/*" multiple>
+    <button id="takePhoto">Take Photo</button>
+    <button id="upload">Upload & Explain</button>
+    <p id="status"></p>
+    <div id="previewArea" style="display:flex;flex-wrap:wrap;"></div>
+  </section>
+
+  <section id="explanation">
+    <h2>Explanation</h2>
+    <div id="summary"></div>
+    <button id="refreshSummary">Refresh Summary</button>
+  </section>
+
+  <script>
+    const tabCapture = document.getElementById("tab-capture");
+    const tabExplain = document.getElementById("tab-explain");
+    const captureSection = document.getElementById("capture");
+    const explainSection = document.getElementById("explanation");
+    const statusEl = document.getElementById("status");
+    const summaryEl = document.getElementById("summary");
+    const previewArea = document.getElementById("previewArea");
+
+    function showSection(section) {
+      captureSection.classList.remove("active");
+      explainSection.classList.remove("active");
+      section.classList.add("active");
+    }
+
+    tabCapture.addEventListener("click", () => showSection(captureSection));
+
+    tabExplain.addEventListener("click", async () => {
+      showSection(explainSection);
+      await fetchSummary();
+    });
+
+    document.getElementById("refreshSummary").addEventListener("click", fetchSummary);
+
+    async function fetchSummary(){
+      try {
+        const res = await fetch("http://localhost:5000/summary");
+        const data = await res.json();
+        summaryEl.innerHTML = marked.parse(data.summary);
+      } catch (e) {
+        summaryEl.textContent = "Error loading summary.";
+      }
+    }
+
+    // camera setup
+    const video = document.getElementById("camera");
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+        video.srcObject = stream;
+      });
+    }
+
+    const canvas = document.getElementById("snapshot");
+    const takePhotoBtn = document.getElementById("takePhoto");
+    const fileInput = document.getElementById("fileInput");
+    let currentFiles = [];
+
+    function addThumbnail(src) {
+      const img = document.createElement("img");
+      img.src = src;
+      previewArea.appendChild(img);
+    }
+
+    takePhotoBtn.addEventListener("click", () => {
+      const context = canvas.getContext("2d");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(blob => {
+        const file = new File([blob], `photo_${Date.now()}.png`, { type: "image/png" });
+        currentFiles.push(file);
+        addThumbnail(URL.createObjectURL(blob));
+      });
+    });
+
+    fileInput.addEventListener("change", e => {
+      Array.from(e.target.files).forEach(file => {
+        currentFiles.push(file);
+        addThumbnail(URL.createObjectURL(file));
+      });
+    });
+
+    document.getElementById("upload").addEventListener("click", async () => {
+      if(currentFiles.length === 0){
+        statusEl.textContent = "No images selected";
+        return;
+      }
+      const formData = new FormData();
+      currentFiles.forEach(file => formData.append("images", file));
+      statusEl.textContent = "Uploading...";
+      try {
+        const res = await fetch("http://localhost:5000/upload", { method: "POST", body: formData });
+        const data = await res.json();
+        statusEl.textContent = data.message;
+        showSection(explainSection);
+        await fetchSummary();
+      } catch (e) {
+        statusEl.textContent = "Upload failed.";
+      }
+    });
+  </script>
+</body>
+</html>
